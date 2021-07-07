@@ -1,0 +1,276 @@
+---
+title: "Training Data Breakdown"
+author: "Thomas Estabrook"
+date: "6/23/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(ggplot2)
+library(forcats)
+library(stringr)
+```
+
+Notes for the team:
+-There are quite a few typos in our species entries. Whenever a code had only one or two entries, no match in the tree codes doc, and seemed close to another more common code, I edited it. Also, some codes have whitespace around them which needs to be stripped.
+-There are a lot of uncoded entries in the street trees layer - for the most part, I coded them to Genus.
+-I made a new column in the tree codes spreadsheet called "Project_Codes" which stores codes we have been using that diverge from the "proper" codes (e.g. "PRSE" vs "PRSE2"). With this, and table joins, we should be able to easily recode our survey data to match the "proper" schema. In that vein, I think the easiest way to try different groupings and schema will be to add columns to this table. 
+
+
+```{r}
+#Here we upload the tree survey, remove whitespace around the species codes, and correct a few typos.
+survey_trees <- read.csv("C:/Users/User/OneDrive - Umich/School/Capstone Project/Data/June_23_Tree_Survey/survey_0.csv")
+survey_trees$Genus.and.Species <- trimws(survey_trees$Genus.and.Species, which = "both", whitespace = "[ \t\r\n]")
+colnames(survey_trees)[13] <- "Project_Code"
+survey_trees$Project_Code[survey_trees$Project_Code == "QUBU"] <- "QUBI"
+survey_trees$Project_Code[survey_trees$Project_Code == "QURE"] <- "QURU"
+survey_trees$Project_Code[survey_trees$Project_Code == "QUVA"] <- "QUVE"
+survey_trees$Project_Code[survey_trees$Project_Code == "SAAL"] <- "SAAL5"
+survey_trees$Project_Code[survey_trees$Project_Code == "ULNUS"] <- "ULMUS"
+
+  
+#Load the street trees layer. 
+street_trees <- read.csv("C:/Users/User/OneDrive - Umich/School/Capstone Project/Data/CodedTrainingData/A2_street_trees_coded.csv")
+street_trees$Plant_Code <- trimws(street_trees$Plant_Code, which = "both", whitespace = "[ \t\r\n]")
+street_trees$Plant_Code[street_trees$COMMONGENU == "Maple" & street_trees$Plant_Code == ""] <- "ACER"
+street_trees$Plant_Code[street_trees$COMMONGENU == "Serviceberry" & street_trees$Plant_Code == ""] <- "AMELA"
+street_trees$Plant_Code[street_trees$COMMONGENU == "Elm" & street_trees$Plant_Code == ""] <- "ULMUS"
+street_trees$Plant_Code[street_trees$COMMONGENU == "Cherry" & street_trees$Plant_Code == ""] <- "PRUNU"
+street_trees$Plant_Code[street_trees$COMMONGENU == "Oak" & street_trees$Plant_Code == ""] <- "QUERC"
+street_trees$Plant_Code[street_trees$COMMONGENU == "Spruce" & street_trees$Plant_Code == ""] <- "PICEA"
+street_trees$Plant_Code[street_trees$BOTANICAL == "Rhamnus cathartica"] <- "RHCA"
+street_trees$Plant_Code[street_trees$BOTANICAL == "Eucommia ulmoides"] <- "EUUL"
+street_trees$Plant_Code <- as.factor(street_trees$Plant_Code)
+
+#For this one, we need to extract a single value from the DBH column. Using regex, we can get the upper and lower bounds and then average them. 
+street_trees$DBH[street_trees$DBH == "N/A"] <- NA
+street_trees$DBH1 <- as.numeric(str_extract(street_trees$DBH, "\\d+"))
+street_trees$DBH2 <- as.numeric(str_extract(street_trees$DBH, "\\d+$"))
+street_trees$DBH <- (street_trees$DBH1 + street_trees$DBH2) / 2
+street_trees <- street_trees[street_trees$COMMONGENU != "Vacant",] #remove vacant tree sites
+street_trees <- street_trees[street_trees$COMMONGENU != "Stump",] #remove vacant tree sites
+
+
+#Load in the arb trees layer. We will remove dead, subcanopy, and pending removal trees.
+arb_trees <- read.csv("C:/Users/User/OneDrive - Umich/School/Capstone Project/Data//CodedTrainingData/Nichols_arb_coded.csv")
+arb_trees$Plant_Code <- trimws(arb_trees$Plant_Code, which = "both", whitespace = "[ \t\r\n]")
+arb_trees$Plant_Code <- as.factor(arb_trees$Plant_Code)
+arb_trees <- arb_trees[arb_trees$COND != "Dead", ]
+arb_trees <- arb_trees[arb_trees$PLANTHABIT == "Tree - canopy", ]
+arb_trees <- arb_trees[arb_trees$MAINT != "Remove", ]
+arb_trees$COMMON <- str_to_title(arb_trees$COMMON)
+
+#Load in the tree codes. The file I'm using has a separate column for species codes as we have been using them, to disambiguate it from the proper codes. 
+tree_codes <- read.csv("C:/Users/User/OneDrive - Umich/School/Capstone Project/Data//CodedTrainingData/GenusSpecies_PlantCode_TGE_edits.csv")
+colnames(tree_codes)[1] <- "Common_Name"
+tree_codes$Project_Code[tree_codes$Project_Code == ""] <- NA
+tree_codes$Plant_Code[tree_codes$Plant_Code == ""] <- NA
+tree_codes <- tree_codes %>%
+  mutate(Project_Code = coalesce(Project_Code, Plant_Code)) %>%
+  mutate(Common_Name = str_to_title(Common_Name))
+```
+
+```{r}
+campus_trees <- read.csv("C:/Users/User/OneDrive - Umich/School/Capstone Project/Data//CodedTrainingData/Campus_trees_2.csv")
+campus_trees <- campus_trees[!is.na(campus_trees$TreeID), ]
+campus_trees <- campus_trees[campus_trees$d_Removed == "No or False", ]
+colnames(campus_trees)[41] <- "Common_Name"
+campus_trees$Common_Name[campus_trees$Common_Name == "Colorado Blue Spruce"] <- "Blue Spruce"
+campus_trees$Common_Name[campus_trees$Common_Name == "Honeylocust (Thornless)"] <- "Honeylocust, Thornless"
+campus_trees$Common_Name[campus_trees$Common_Name == "Crabapple"] <- "Crabapple, Common"
+campus_trees$Common_Name[campus_trees$Common_Name == "Northern red oak"] <- "Northern Red Oak"
+campus_trees$Common_Name[campus_trees$Common_Name == "White Pine"] <- "Eastern White Pine"
+campus_trees$Common_Name[campus_trees$Common_Name == "Littleleaf Linden"] <- "Linden, Littleleaf"
+campus_trees$Common_Name[campus_trees$Common_Name == "Japanese Cherry"] <- "Plum" #to classify to prunus sp.
+campus_trees$Common_Name[campus_trees$Common_Name == "Cherry Hybrid"] <- "Plum" #ditto
+campus_trees$Common_Name[campus_trees$Common_Name == "American Arborvitae"] <- "Northern White-Cedar"
+campus_trees$Common_Name[campus_trees$Common_Name == "London Planetree"] <- "Planetree, London"
+campus_trees$Common_Name[campus_trees$Common_Name == "Heritage River Birch"] <- "River Birch"
+campus_trees$Common_Name[campus_trees$Common_Name == "Black Gum"] <- "Blackgum"
+campus_trees$Common_Name[campus_trees$Common_Name == "Serbian Spruce"] <- "Spruce, Serbian"
+campus_trees$Common_Name[campus_trees$Common_Name == "Shadblow Serviceberry"] <- "Serviceberry"
+campus_trees$Common_Name[campus_trees$Common_Name == "Saucer Magnolia"] <- "Magnolia, Chinese; Saucer"
+campus_trees$Common_Name[campus_trees$Common_Name == "Ginkgo"] <- "Ginkgo, Maidenhair Tree"
+
+
+#Get rid of a ton of columns
+campus_trees <- subset(campus_trees, select=-c(GlobalID, DateRemoved, d_BldgSupvNotf, BldgSupvNotf, created_user, SpeciesID, ConditionID, DateAdded, CauseID, d_CauseID, DateLastTransplanted, DateStumpRemoved, created_date, last_edited_user, last_edited_date, MemorialTree, d_MemorialTree, MemorialName, MemorialPlaque, d_MemorialPlaque, MissDiggCalled, MissDiggTicket, MissDiggClear, d_MissDiggCalled, d_NeedStumpRemoval, d_CityTree, d_ConditionClassID, d_ConditionClass, d_Removed))
+colnames(campus_trees)[6] <- "DBH"
+campus_trees <- campus_trees %>%
+  left_join(tree_codes)
+
+campus_trees <- campus_trees[!is.na(campus_trees$Plant_Code), ]
+# null_codes <- campus_trees[is.na(campus_trees$Plant_Code), ] %>%
+#   group_by(Common_Name) %>%
+#   summarise(n = n())
+```
+
+```{r}
+tree_counts1 <- survey_trees %>%
+  group_by(Project_Code) %>%
+  summarize(tree_count = n(), mean_dbh = mean(DBH, na.rm = TRUE)) %>%
+  left_join(tree_codes)
+  
+tree_counts1 <- arrange(tree_counts1, desc(tree_count))
+tree_counts1_top20 <- tree_counts1[1:20,]
+tree_counts1_top20$Project_Code <- as.factor(tree_counts1_top20$Project_Code)
+tree_counts1_top20$Project_Code <- droplevels(tree_counts1_top20$Project_Code)
+
+tree_counts1_top20$Common_Name <- as.factor(tree_counts1_top20$Common_Name)
+tree_counts1_top20$Common_Name <- droplevels(tree_counts1_top20$Common_Name)
+```
+
+```{r}
+# barplot(mean_dbh ~ fct_reorder(Common_Name, tree_count), data=tree_counts1_top20, las=1, width=2, cex.names=0.5, xlab="Mean DBH", ylab="Species", col="goldenrod", horiz=TRUE)
+# 
+# barplot(tree_count ~ fct_reorder(Common_Name, tree_count), data=tree_counts1_top20, las=1, width=2, cex.names=0.5, xlab="Trees Surveyed", ylab="Species", col="goldenrod", horiz=TRUE)
+
+ggplot(tree_counts1_top20, aes(x=fct_reorder(Common_Name, tree_count), y=tree_count)) + geom_bar(stat = 'identity', fill="forestgreen") + coord_flip() + labs(x="Tree Species", y="Tree Count", title="Top 20 Species Surveyed")
+
+ggplot(tree_counts1_top20, aes(x=fct_reorder(Common_Name, tree_count), y=mean_dbh)) + geom_bar(stat = 'identity', fill="forestgreen") + coord_flip() + labs(x="Tree Species", y="Mean DBH", title="Mean DBH of Surveyed Canopy Trees by Species")
+```
+
+```{r}
+tree_counts2 <- street_trees %>%
+  group_by(COMMONNAME) %>%
+  summarize(tree_count = n(), mean_dbh = mean(DBH, na.rm = TRUE))
+  
+tree_counts2 <- arrange(tree_counts2, desc(tree_count))
+tree_counts2_top20 <- tree_counts2[1:20,]
+
+tree_counts2_top20$COMMONNAME <- as.factor(tree_counts2_top20$COMMONNAME)
+tree_counts2_top20$COMMONNAME <- droplevels(tree_counts2_top20$COMMONNAME)
+```
+
+```{r}
+ggplot(tree_counts2_top20, aes(x=fct_reorder(COMMONNAME, tree_count), y=tree_count)) + geom_bar(stat = 'identity', fill="goldenrod3") + coord_flip() + labs(x="Tree Species", y="Tree Count", title="Top 20 Street Trees")
+
+ggplot(tree_counts2_top20, aes(x=fct_reorder(COMMONNAME, tree_count), y=mean_dbh)) + geom_bar(stat = 'identity', fill="goldenrod3") + coord_flip() + labs(x="Tree Species", y="Mean DBH", title="Mean DBH of Street Trees by Species")
+```
+
+```{r}
+tree_counts3 <- arb_trees %>%
+  group_by(COMMON) %>%
+  summarize(tree_count = n(), mean_dbh = mean(DBH, na.rm = TRUE))
+  
+tree_counts3 <- arrange(tree_counts3, desc(tree_count))
+tree_counts3_top20 <- tree_counts3[1:20,]
+
+tree_counts3_top20$COMMON <- as.factor(tree_counts3_top20$COMMON)
+tree_counts3_top20$COMMON <- droplevels(tree_counts3_top20$COMMON)
+```
+
+```{r}
+ggplot(tree_counts3_top20, aes(x=fct_reorder(COMMON, tree_count), y=tree_count)) + geom_bar(stat = 'identity', fill="darkred") + coord_flip() + labs(x="Tree Species", y="Tree Count", title="Top 20 Arboretum Trees")
+
+ggplot(tree_counts3_top20, aes(x=fct_reorder(COMMON, tree_count), y=mean_dbh)) + geom_bar(stat = 'identity', fill="darkred") + coord_flip() + labs(x="Tree Species", y="Mean DBH", title="Mean DBH of Arb Trees by Species")
+```
+```{r}
+tree_counts4 <- campus_trees %>%
+  group_by(Common_Name) %>%
+  summarize(tree_count = n(), mean_dbh = mean(DBH, na.rm = TRUE))
+  
+tree_counts4 <- arrange(tree_counts4, desc(tree_count))
+tree_counts4_top20 <- tree_counts4[1:20,]
+
+tree_counts4_top20$Common_Name <- as.factor(tree_counts4_top20$Common_Name)
+tree_counts4_top20$Common_Name <- droplevels(tree_counts4_top20$Common_Name)
+```
+
+```{r}
+ggplot(tree_counts4_top20, aes(x=fct_reorder(Common_Name, tree_count), y=tree_count)) + geom_bar(stat = 'identity', fill="mediumpurple3") + coord_flip() + labs(x="Tree Species", y="Tree Count", title="Top 20 Campus Trees")
+
+ggplot(tree_counts4_top20, aes(x=fct_reorder(Common_Name, tree_count), y=mean_dbh)) + geom_bar(stat = 'identity', fill="mediumpurple3") + coord_flip() + labs(x="Tree Species", y="Mean DBH", title="Mean DBH of Campus Trees by Species")
+```
+
+
+```{r}
+# tree_counts4 <- survey_trees %>%
+#   group_by(Project_Code) %>%
+#   summarize(tree_count = n(), mean_dbh = mean(DBH, na.rm = TRUE)) %>%
+#   left_join(tree_codes) %>% 
+#   mutate(source = "Survey")
+# 
+# tree_counts5 <- street_trees %>%
+#   group_by(Plant_Code) %>%
+#   summarize(tree_count = n(), mean_dbh = mean(DBH, na.rm = TRUE)) %>%
+#   left_join(tree_codes)%>% 
+#   mutate(source = "Street Trees")
+# 
+# tree_counts6 <- arb_trees %>%
+#   group_by(Plant_Code) %>%
+#   summarize(tree_count = n(), mean_dbh = mean(DBH, na.rm = TRUE)) %>%
+#   left_join(tree_codes)%>% 
+#   mutate(source = "Arb")
+# 
+# tree_counts_full <- rbind(tree_counts4, tree_counts5, tree_counts6)
+
+arb_trees <- arb_trees %>%
+  left_join(tree_codes)
+street_trees <- street_trees %>%
+  left_join(tree_codes)
+survey_trees <- survey_trees %>%
+  left_join(tree_codes)
+
+trees_master <- bind_rows(arb_trees, street_trees, survey_trees, campus_trees)
+trees_master <- trees_master[!is.na(trees_master$Plant_Code), ]
+trees_master <- trees_master[trees_master$Plant_Code != "", ]
+trees_master <- trees_master[!is.na(trees_master$Common_Name), ]
+trees_master <- trees_master[trees_master$Common_Name != "", ]
+```
+
+```{r}
+tree_counts_full <- trees_master %>%
+  group_by(Common_Name) %>%
+  summarize(tree_count = n(), mean_dbh = mean(DBH, na.rm = TRUE)) 
+
+tree_counts_full <- arrange(tree_counts_full, desc(tree_count))
+tree_counts_full_top20 <- tree_counts_full[1:20,]
+# tree_counts_full_top20$Plant_Code <- as.factor(tree_counts_full_top20$Plant_Code)
+# tree_counts_full_top20$Plant_Code <- droplevels(tree_counts_full_top20$Plant_Code)
+
+tree_counts_full_top20$Common_Name <- as.factor(tree_counts_full_top20$Common_Name)
+tree_counts_full_top20$Common_Name <- droplevels(tree_counts_full_top20$Common_Name)
+```
+
+```{r}
+ggplot(tree_counts_full_top20, aes(x=fct_reorder(Common_Name, tree_count), y=tree_count)) + geom_bar(stat = 'identity', fill="navy") + coord_flip() + labs(x="Tree Species", y="Tree Count", title="Top 20 Ann Arbor Trees")
+
+ggplot(tree_counts_full_top20, aes(x=fct_reorder(Common_Name, tree_count), y=mean_dbh)) + geom_bar(stat = 'identity', fill="navy") + coord_flip() + labs(x="Tree Species", y="Mean DBH", title="Mean DBH of All Trees by Species")
+```
+
+```{r}
+sample_sites <- read.csv("C:/Users/User/OneDrive - Umich/School/Capstone Project/Data/CodedTrainingData/sample_plots.csv")
+
+colnames(survey_trees)[7] <- "CID"
+
+survey_trees <- survey_trees %>%
+  inner_join(sample_sites, by="CID")
+
+survey_site_counts <- survey_trees %>%
+  group_by(Location) %>%
+  summarize(dominant_species = names(which.max(table(Project_Code))), mean_dbh_all_trees = mean(DBH, na.rm = TRUE))
+```
+
+```{r}
+survey_site_counts <- left_join(survey_site_counts, tree_codes)
+```
+
+```{r}
+tree_counts1 <- tree_counts1 %>%
+  mutate(perc = tree_count/sum(tree_count)*100)
+
+tree_counts_full <- tree_counts_full %>%
+  mutate(perc = tree_count/sum(tree_count)*100)
+```
+
+
+
+
+
+
+
+
+
