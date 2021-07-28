@@ -1,0 +1,99 @@
+---
+title: "Tree Survey to Point Layer"
+author: "Thomas Estabrook"
+date: "7/7/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(sf)
+library(dplyr)
+library(cartography)
+library(ggplot2)
+```
+
+Outline:
+- Write function for getting coordinates from sample plot location and x and y
+
+- Create polygons with plot outlines
+  - Get locations for each corner and store in variables
+    - 100 ft north
+    - 100 ft east
+    - 100 ft north and east
+  - Create polygon from coordinates
+  
+- Place points for each tree
+  - Loop through each sample site
+    - Subset points for that site
+    - Loop through each tree in the site
+      - Add a new point for the tree with appropriate transformation
+      
+      
+```{r}
+coord_convert <- function(old_x, old_y, plot_x, plot_y, coord){
+  # declination is 7 degrees three minutes to the West = 7.05 degreees
+  # assuming same units since input layer is in feet
+  theta = -0.123 # convert to radians, negative for clockwise correction
+  new_x <- (old_x*cos(theta)) - (old_y*sin(theta))
+  new_y <- (old_y*cos(theta)) + (old_x*sin(theta))
+  
+  return(ifelse(coord == "X", plot_x + new_x, plot_y + new_y))
+}
+```
+
+
+```{r}
+# read in survey tree csv file
+survey_trees <- read.csv("C:/Users/User/OneDrive - Umich/School/Capstone Project/Data/July_27_Tree_Survey/survey_0.csv")
+# read in shapefile for plot locations
+sample_plots <- read_sf("C:/Users/User/OneDrive - Umich/School/Capstone Project/Data/Sample_Plots_shapefile/SamplePlots.shp")
+#source CRS: EPSG 2253, units are feet
+```
+
+```{r}
+#get the x and y coordinate values from the sample plot shapefile
+sample_plots <- sample_plots %>%
+  mutate(X_plot = st_coordinates(sample_plots[,7])[,"X"]) %>%
+  mutate(Y_plot = st_coordinates(sample_plots[,7])[,"Y"]) %>%
+  select(!c(Coordinate, GlobalID, CreationDa, Creator, EditDate, Editor, H_precisio, X, Y))
+
+sample_plots <- st_drop_geometry(sample_plots)
+```
+
+```{r}
+theta = 0.123 # convert to radians, negative for clockwise correction
+survey_trees <- survey_trees %>%
+  inner_join(sample_plots, by = c("Plot.ID" = "CID")) %>%
+  select(!c(x,y,Cartesian.or.Polar.Coordinates.,GlobalID, CreationDate, Creator, EditDate, Editor,Surveyor,Notes.x,Notes.y)) %>%
+  mutate(new_x = (X.value*cos(theta)) - (Y.value*sin(theta))) %>%
+  mutate(new_y = (Y.value*cos(theta)) + (X.value*sin(theta))) %>%
+  mutate(final_x = X_plot + new_x) %>%
+  mutate(final_y = Y_plot + new_y)
+
+```
+
+
+```{r}
+proj_crs <- st_crs(sample_plots)
+tree_points <- st_as_sf(survey_trees, coords = c("final_x", "final_y"), crs=proj_crs)
+```
+
+```{r}
+ggplot() +
+  geom_sf(data = tree_points) +
+  ggtitle("Map of Plot Locations")
+```
+
+```{r}
+write_sf(tree_points, "C:/Users/User/OneDrive - Umich/School/Capstone Project/Data/tree_points_test.shp")
+```
+
+
+
+
+
+
+
+
+
