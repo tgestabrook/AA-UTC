@@ -13,16 +13,7 @@ library(cartography)
 library(ggplot2)
 ```
 
-Outline:
-- Write function for getting coordinates from sample plot location and x and y
 
-- Place points for each tree
-  - Loop through each sample site
-    - Subset points for that site
-    - Loop through each tree in the site
-      - Add a new point for the tree with appropriate transformation
-      
-      
 ```{r}
 coord_convert <- function(old_x, old_y, plot_x, plot_y, coord){
   # declination is 7 degrees three minutes to the West = 7.05 degreees
@@ -38,7 +29,7 @@ coord_convert <- function(old_x, old_y, plot_x, plot_y, coord){
 
 ```{r}
 # read in survey tree csv file
-survey_trees <- read.csv("C:/Users/User/OneDrive - Umich/School/Capstone Project/Data/July_27_Tree_Survey/survey_0.csv")
+survey_trees <- read.csv("C:/Users/User/OneDrive - Umich/School/Capstone Project/Data/August_18_Tree_Survey/survey_0.csv")
 
 # read in shapefile for plot locations
 sample_plots <- read_sf("C:/Users/User/OneDrive - Umich/School/Capstone Project/Data/Sample_Plots_shapefile/SamplePlots.shp")
