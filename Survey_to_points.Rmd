@@ -13,20 +13,6 @@ library(cartography)
 library(ggplot2)
 ```
 
-
-```{r}
-coord_convert <- function(old_x, old_y, plot_x, plot_y, coord){
-  # declination is 7 degrees three minutes to the West = 7.05 degreees
-  # assuming same units since input layer is in feet
-  theta = -0.123 # convert to radians, negative for clockwise correction
-  new_x <- (old_x*cos(theta)) - (old_y*sin(theta))
-  new_y <- (old_y*cos(theta)) + (old_x*sin(theta))
-  
-  return(ifelse(coord == "X", plot_x + new_x, plot_y + new_y))
-}
-```
-
-
 ```{r}
 # read in survey tree csv file
 survey_trees <- read.csv("C:/Users/User/OneDrive - Umich/School/Capstone Project/Data/August_18_Tree_Survey/survey_0.csv")
@@ -78,7 +64,7 @@ ggplot() +
 
 ```{r}
 # Output the final shapefile
-write_sf(tree_points, "C:/Users/User/OneDrive - Umich/School/Capstone Project/Data/tree_points_test.shp")
+write_sf(tree_points, "C:/Users/User/OneDrive - Umich/School/Capstone Project/Data/tree_points_Aug_18.shp")
 ```
 
 
