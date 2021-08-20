@@ -93,6 +93,7 @@ campus_trees$Common_Name[campus_trees$Common_Name == "Serbian Spruce"] <- "Spruc
 campus_trees$Common_Name[campus_trees$Common_Name == "Shadblow Serviceberry"] <- "Serviceberry"
 campus_trees$Common_Name[campus_trees$Common_Name == "Saucer Magnolia"] <- "Magnolia, Chinese; Saucer"
 campus_trees$Common_Name[campus_trees$Common_Name == "Ginkgo"] <- "Ginkgo, Maidenhair Tree"
+campus_trees$Common_Name[campus_trees$Common_Name == "Tuliptree"] <- "Yellow-Poplar"
 
 
 #Get rid of a ton of columns
