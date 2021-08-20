@@ -1,0 +1,246 @@
+---
+title: "Master Training Data Maker"
+author: "Thomas Estabrook"
+date: "8/18/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(forcats)
+library(stringr)
+library(sf)
+library(cartography)
+```
+
+Goal: Get every dataset into a single, usable shapefile. This means that all trees have their proper code, invalid or dead trees are eliminated. The final file should have the following fields:
+- Tree code
+- DBH
+- Source file
+- Geometry
+
+Outline:
+1. Load in survey trees shapefile (output of survey_to_points.rmd), campus trees, arb trees, and street trees
+  a. Get all trees into the correct coordinate reference system (crs)
+2. Survey trees
+  a. Combine with single point layer
+  b. Eliminate typos
+3. Campus trees, Arb trees, Street trees
+  a. Recode to project tree codes
+  b. Calculate proper DBH (campus)
+  c. Eliminate extraneous columns
+  d. Eliminate dead trees
+4. Merge all into single layer
+
+Notes
+- NEED TO FILTER OVERTOPPED TREES FROM SURVEY DATA
+----------------------------------------------------------------------
+
+First we load in the necessary training data layers and ensure they are all in the same projection:
+```{r}
+# set up tree codes table
+tree_codes <- read.csv("C:/Users/User/OneDrive - Umich/School/Capstone Project/Data//CodedTrainingData/GenusSpecies_PlantCode_TGE_edits.csv")
+colnames(tree_codes)[1] <- "Common_Name"
+tree_codes$Project_Code[tree_codes$Project_Code == ""] <- NA
+tree_codes$Plant_Code[tree_codes$Plant_Code == ""] <- NA
+tree_codes <- tree_codes %>%
+  mutate(Project_Code = coalesce(Project_Code, Plant_Code)) %>%
+  mutate(Common_Name = str_to_title(Common_Name))
+
+# load data layers
+survey_trees_plot <- read_sf("C:/Users/User/OneDrive - Umich/School/Capstone Project/Data/tree_points_Aug_18.shp")
+st_crs(survey_trees_plot) <- 2253 #MI state plane (feet)
+
+survey_trees_single <- read_sf("C:/Users/User/OneDrive - Umich/School/Capstone Project/Data/Individual_trees_AUG_18_shape/survey.shp")
+street_trees <- read_sf("C:/Users/User/OneDrive - Umich/School/Capstone Project/Data/Street_trees/Street_trees.shp")
+arb_trees <- read_sf("C:/Users/User/OneDrive - Umich/School/Capstone Project/Data/Arb_trees/Arb_trees.shp")
+campus_trees <- read_sf("C:/Users/User/OneDrive - Umich/School/Capstone Project/Data/Campus_trees/Campus_trees.shp")
+
+# reproject layers
+survey_trees_single <- st_transform(survey_trees_single, st_crs(survey_trees_plot))
+street_trees <- st_transform(street_trees, st_crs(survey_trees_plot))
+arb_trees <- st_transform(arb_trees, st_crs(survey_trees_plot))
+campus_trees <- st_transform(campus_trees, st_crs(survey_trees_plot))
+
+# check for projection consistency
+print(st_crs(survey_trees_plot) == st_crs(survey_trees_single))
+print(st_crs(survey_trees_plot) == st_crs(street_trees))
+print(st_crs(survey_trees_plot) == st_crs(arb_trees))
+print(st_crs(survey_trees_plot) == st_crs(campus_trees))
+```
+
+Next, we clean up and combine the survey trees layers:
+```{r}
+# remove unneeded columns
+survey_trees_plot2 <- survey_trees_plot %>% select(c('Gns_n_S', 'DBH', 'geometry'))
+survey_trees_single2 <- survey_trees_single %>% select(c('genus_and_', 'dbh', 'geometry'))
+
+# rename remaining columns so that rbind will work
+colnames(survey_trees_plot2) <- c('Project_Code', 'DBH', 'geometry')
+colnames(survey_trees_single2) <- c('Project_Code', 'DBH', 'geometry')
+
+# combine the layers into a single layer
+survey_trees_full <- rbind(survey_trees_plot2, survey_trees_single2)
+
+# remove whitespace from species code
+survey_trees_full$Project_Code <- trimws(survey_trees_full$Project_Code, which = "both", whitespace = "[ \t\r\n]")
+
+# correct some typos:
+survey_trees_full$Project_Code[survey_trees_full$Project_Code == "QUBU"] <- "QUBI"
+survey_trees_full$Project_Code[survey_trees_full$Project_Code == "QURE"] <- "QURU"
+survey_trees_full$Project_Code[survey_trees_full$Project_Code == "QUPA"] <- "QUMA"
+survey_trees_full$Project_Code[survey_trees_full$Project_Code == "QUVA"] <- "QUVE"
+survey_trees_full$Project_Code[survey_trees_full$Project_Code == "QUERCUS"] <- "QUERC"
+survey_trees_full$Project_Code[survey_trees_full$Project_Code == "SAAL"] <- "SAAL5"
+survey_trees_full$Project_Code[survey_trees_full$Project_Code == "ULNUS"] <- "ULMUS"
+survey_trees_full$Project_Code[survey_trees_full$Project_Code == "ULUMS"] <- "ULMUS"
+survey_trees_full$Project_Code[survey_trees_full$Project_Code == "UPLU"] <- "ULPU"
+survey_trees_full$Project_Code[survey_trees_full$Project_Code == "CAL"] <- "CALA"
+
+# join to full tree codes
+survey_trees_full <- survey_trees_full %>% left_join(tree_codes)
+survey_trees_full['Source'] <- "Survey" #add source info
+```
+
+Now, we code and clean the street trees:
+```{r}
+# go through the "botanical" column and change any 'species' entries to 'sp.'
+street_trees$BOTANICAL <- gsub('species', 'sp.', street_trees$BOTANICAL)
+
+# join street trees to project codes
+street_trees <- street_trees %>% left_join(tree_codes, by = c('BOTANICAL' = 'Botanical'))
+
+# more cleaning
+street_trees$DBH[street_trees$DBH == "N/A"] <- NA
+street_trees$DBH1 <- as.numeric(str_extract(street_trees$DBH, "\\d+"))
+street_trees$DBH2 <- as.numeric(str_extract(street_trees$DBH, "\\d+$"))
+street_trees$DBH <- (street_trees$DBH1 + street_trees$DBH2) / 2
+street_trees <- street_trees[street_trees$COMMONGENU != "Vacant",] #remove vacant tree sites
+street_trees <- street_trees[street_trees$COMMONGENU != "Stump",] #remove vacant tree sites
+
+# select only needed columns and add source info
+street_trees['Source'] <- "Street Trees"
+```
+
+Code and clean the Arb trees:
+```{r}
+# again, sub out 'spp.' for 'sp.' so the table join works properly
+arb_trees$BOTANICAL <- gsub('spp.', 'sp.', arb_trees$BOTANICAL)
+
+# boot out dead trees
+arb_trees <- arb_trees[arb_trees$COND != "Dead", ]
+arb_trees <- arb_trees[arb_trees$PLANTHABIT == "Tree - canopy", ]
+arb_trees <- arb_trees[arb_trees$MAINT != "Remove", ]
+
+arb_trees <- arb_trees %>% left_join(tree_codes, by = c('BOTANICAL' = 'Botanical'))
+arb_trees['Source'] <- "Arboretum"
+```
+
+Code and clean the campus trees:
+```{r}
+# remove NA and unknown and removed trees
+campus_trees <- campus_trees[!is.na(campus_trees$d_SpeciesI), ]
+campus_trees <- campus_trees[campus_trees$d_SpeciesI != 'Unknown', ]
+campus_trees <- campus_trees[campus_trees$d_Removed == "No or False", ]
+
+# make data easier to work with
+campus_trees <- campus_trees %>% select('d_SpeciesI', 'Diameter', 'geometry')
+colnames(campus_trees) <- c('Common_Name', 'DBH', 'geometry')
+
+# rename a bunch of trees to make the table join possible
+campus_trees$Common_Name[campus_trees$Common_Name == "Colorado Blue Spruce"] <- "Blue Spruce"
+campus_trees$Common_Name[campus_trees$Common_Name == "Honeylocust (Thornless)"] <- "Honeylocust, Thornless"
+campus_trees$Common_Name[campus_trees$Common_Name == "Honey Locust"] <- "Honeylocust, Thornless"
+campus_trees$Common_Name[campus_trees$Common_Name == "Crabapple"] <- "Crabapple, Common"
+campus_trees$Common_Name[campus_trees$Common_Name == "Mary Potter Crabapple"] <- "Crabapple, Common"
+campus_trees$Common_Name[campus_trees$Common_Name == "Northern red oak"] <- "Northern Red Oak"
+campus_trees$Common_Name[campus_trees$Common_Name == "White Pine"] <- "Eastern White Pine"
+campus_trees$Common_Name[campus_trees$Common_Name == "Littleleaf Linden"] <- "Linden, Littleleaf"
+campus_trees$Common_Name[campus_trees$Common_Name == "Japanese Cherry"] <- "Plum" #to classify to prunus sp.
+campus_trees$Common_Name[campus_trees$Common_Name == "Cherry Hybrid"] <- "Plum" #ditto
+campus_trees$Common_Name[campus_trees$Common_Name == "American Arborvitae"] <- "Northern White-Cedar"
+campus_trees$Common_Name[campus_trees$Common_Name == "London Planetree"] <- "Planetree, London"
+campus_trees$Common_Name[campus_trees$Common_Name == "Heritage River Birch"] <- "River Birch"
+campus_trees$Common_Name[campus_trees$Common_Name == "Black Gum"] <- "Blackgum"
+campus_trees$Common_Name[campus_trees$Common_Name == "Serbian Spruce"] <- "Spruce, Serbian"
+campus_trees$Common_Name[campus_trees$Common_Name == "Shadblow Serviceberry"] <- "Serviceberry"
+campus_trees$Common_Name[campus_trees$Common_Name == "Saucer Magnolia"] <- "Magnolia, Chinese; Saucer"
+campus_trees$Common_Name[campus_trees$Common_Name == "Ginkgo"] <- "Ginkgo, Maidenhair Tree"
+campus_trees$Common_Name[campus_trees$Common_Name == "Tuliptree"] <- "Yellow-Poplar"
+
+campus_trees <- campus_trees %>% left_join(tree_codes)
+campus_trees['Source'] <- "Campus"
+```
+
+Here we do a few checks to make sure the data cleaning went well:
+```{r}
+ctna <- campus_trees[is.na(campus_trees$Plant_Code), ] %>%
+  group_by(Common_Name) %>%
+  summarise(n = n())
+
+survey_counts <- survey_trees_full %>%
+  group_by(Plant_Code) %>%
+  summarise(n = n())
+```
+
+Choose final variables to keep and combine into a single master layer:
+```{r}
+survey_trees_full <- survey_trees_full %>% select(c('Plant_Code', 'Common_Name', 'DBH', 'Source', 'Genus', 'Project_Code', 'geometry'))
+street_trees <- street_trees %>% select(c('Plant_Code', 'Common_Name', 'DBH', 'Source', 'Genus', 'Project_Code', 'geometry'))
+arb_trees <- arb_trees %>% select(c('Plant_Code', 'Common_Name', 'DBH', 'Source', 'Genus', 'Project_Code', 'geometry'))
+campus_trees <- campus_trees %>% select(c('Plant_Code', 'Common_Name', 'DBH', 'Source', 'Genus', 'Project_Code', 'geometry'))
+
+training_trees_master <- rbind(survey_trees_full, arb_trees, street_trees, campus_trees)
+st_write(training_trees_master, "C:/Users/User/OneDrive - Umich/School/Capstone Project/Data/training_trees_master.shp")
+```
+Now we reload the file (to avoid having to repeat previous steps) and generate some graphs and charts of our data:
+```{r}
+training_trees <- read_sf("C:/Users/User/OneDrive - Umich/School/Capstone Project/Data/training_trees_master.shp")
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
