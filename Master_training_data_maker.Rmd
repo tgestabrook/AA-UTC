@@ -39,6 +39,7 @@ Outline:
 
 Notes
 - NEED TO FILTER OVERTOPPED TREES FROM SURVEY DATA
+- The table joins will produce duplicate entries UNLESS the key columns include only unique values. Unfortunately, for these datasets we will be using the `Project_Code`, `Botanical`, and `Common_Name` columns for joins, so they all need to only have unique entries. If using this script, make sure you have the most recent version of `GenusSpecies_PlantCode_TGE_edits.csv`. 
 ----------------------------------------------------------------------
 
 First we load in the necessary training data layers and ensure they are all in the same projection:
@@ -51,6 +52,11 @@ tree_codes$Plant_Code[tree_codes$Plant_Code == ""] <- NA
 tree_codes <- tree_codes %>%
   mutate(Project_Code = coalesce(Project_Code, Plant_Code)) %>%
   mutate(Common_Name = str_to_title(Common_Name))
+
+# For the joins to work, we need to check for duplicates in the project codes. If any of these tables have an entry higher than one, you will need to adjust the plant code document accordingly. 
+n_occur_code <- data.frame(table(tree_codes$Project_Code))
+n_occur_common <- data.frame(table(tree_codes$Project_Code))
+n_occur_botanical <- data.frame(table(tree_codes$Project_Code))
 
 # load data layers
 survey_trees_plot <- read_sf("C:/Users/User/OneDrive - Umich/School/Capstone Project/Data/tree_points_Aug_18.shp")
@@ -172,6 +178,19 @@ campus_trees$Common_Name[campus_trees$Common_Name == "Shadblow Serviceberry"] <-
 campus_trees$Common_Name[campus_trees$Common_Name == "Saucer Magnolia"] <- "Magnolia, Chinese; Saucer"
 campus_trees$Common_Name[campus_trees$Common_Name == "Ginkgo"] <- "Ginkgo, Maidenhair Tree"
 campus_trees$Common_Name[campus_trees$Common_Name == "Tuliptree"] <- "Yellow-Poplar"
+campus_trees$Common_Name[campus_trees$Common_Name == "Bradford Pear"] <- "Pear, Callery"
+campus_trees$Common_Name[campus_trees$Common_Name == "American Arborvitae \"Nigra\""] <- "northern white-cedar"
+campus_trees$Common_Name[campus_trees$Common_Name == "Red Sunset Maple"] <- "Maple"
+campus_trees$Common_Name[campus_trees$Common_Name == "Whitespire Birch"] <- "birch sp."
+campus_trees$Common_Name[campus_trees$Common_Name == "Callery Pear"] <- "Pear, Callery"
+campus_trees$Common_Name[campus_trees$Common_Name == "Common Hackberry"] <- "hackberry"
+campus_trees$Common_Name[campus_trees$Common_Name == "Japanese Zelkova
+"] <- "zelkova, Japanese"
+campus_trees$Common_Name[campus_trees$Common_Name == "Cleveland Select Pear"] <- "Pear"
+campus_trees$Common_Name[campus_trees$Common_Name == "Crusader Hawthorn"] <- "Hawthorn"
+campus_trees$Common_Name[campus_trees$Common_Name == "Japanese Tree Lilac"] <- "lilac, Japanese tree"
+campus_trees$Common_Name[campus_trees$Common_Name == "American Liberty Elm"] <- "American elm"
+campus_trees$Common_Name[campus_trees$Common_Name == "Amur Maple"] <- "Maple, Amur"
 
 campus_trees <- campus_trees %>% left_join(tree_codes)
 campus_trees['Source'] <- "Campus"
@@ -196,19 +215,48 @@ arb_trees <- arb_trees %>% select(c('Plant_Code', 'Common_Name', 'DBH', 'Source'
 campus_trees <- campus_trees %>% select(c('Plant_Code', 'Common_Name', 'DBH', 'Source', 'Genus', 'Project_Code', 'geometry'))
 
 training_trees_master <- rbind(survey_trees_full, arb_trees, street_trees, campus_trees)
-st_write(training_trees_master, "C:/Users/User/OneDrive - Umich/School/Capstone Project/Data/training_trees_master.shp")
+# st_write(training_trees_master, "C:/Users/User/OneDrive - Umich/School/Capstone Project/Data/training_trees_master.shp")
 ```
 Now we reload the file (to avoid having to repeat previous steps) and generate some graphs and charts of our data:
 ```{r}
 training_trees <- read_sf("C:/Users/User/OneDrive - Umich/School/Capstone Project/Data/training_trees_master.shp")
 ```
 
+Here we get counts for the top 20 trees in our full dataset:
+```{r}
+tree_counts_full <- training_trees %>%
+  group_by(Cmmn_Nm) %>%
+  summarize(tree_count = n(), mean_dbh = mean(DBH, na.rm = TRUE)) 
+
+tree_counts_full <- arrange(tree_counts_full, desc(tree_count))
+tree_counts_full_top20 <- tree_counts_full[1:20,]
+
+ggplot(tree_counts_full_top20, aes(x=fct_reorder(Cmmn_Nm, tree_count), y=tree_count)) + geom_bar(stat = 'identity', fill="navy") + coord_flip() + labs(x="Tree Species", y="Tree Count", title="Top 20 Training Data Trees")
+```
+And here we get counts for the top 20 trees in our survey:
+```{r}
+survey_counts <- training_trees %>%
+  filter(Source == 'Survey') %>%
+  group_by(Cmmn_Nm) %>%
+  summarize(tree_count = n(), mean_dbh = mean(DBH, na.rm = TRUE)) 
+
+survey_counts <- arrange(survey_counts, desc(tree_count))
+survey_counts_top20 <- survey_counts[1:20,]
+
+ggplot(survey_counts_top20, aes(x=fct_reorder(Cmmn_Nm, tree_count), y=tree_count)) + geom_bar(stat = 'identity', fill="forestgreen") + coord_flip() + labs(x="Tree Species", y="Tree Count", title="Top 20 Trees Surveyed")
+```
+
+```{r}
+ggplot(training_trees[training_trees$Genus == 'QUERC',], aes(x=DBH)) + geom_histogram(fill="goldenrod", colour = 'black', binwidth = 5) + labs(title = "Oak DBH distribution")
+```
+```{r}
+ggplot(training_trees[training_trees$Genus == 'ACER',], aes(x=DBH)) + geom_histogram(fill="coral4", colour = 'black', binwidth = 5) + labs(title = "Maple DBH distribution")
+```
 
 
-
-
-
-
+```{r}
+ggplot(training_trees[training_trees$Genus == 'CARYA',], aes(x=DBH)) + geom_histogram(fill="forestgreen", colour = 'black', binwidth = 5) + labs(title = "Hickory DBH distribution")
+```
 
 
 
