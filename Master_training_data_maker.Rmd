@@ -16,6 +16,7 @@ library(forcats)
 library(stringr)
 library(sf)
 library(cartography)
+library(tidyverse)
 ```
 
 Goal: Get every dataset into a single, usable shapefile. This means that all trees have their proper code, invalid or dead trees are eliminated. The final file should have the following fields:
@@ -40,6 +41,12 @@ Outline:
 Notes
 - NEED TO FILTER OVERTOPPED TREES FROM SURVEY DATA
 - The table joins will produce duplicate entries UNLESS the key columns include only unique values. Unfortunately, for these datasets we will be using the `Project_Code`, `Botanical`, and `Common_Name` columns for joins, so they all need to only have unique entries. If using this script, make sure you have the most recent version of `GenusSpecies_PlantCode_TGE_edits.csv`. 
+
+Join Keys:
+- Survey: Project_Code
+- Arb: Botanical
+- Street trees: Botanical
+- Campus trees: Campus_Name
 ----------------------------------------------------------------------
 
 First we load in the necessary training data layers and ensure they are all in the same projection:
@@ -220,6 +227,7 @@ training_trees_master <- rbind(survey_trees_full, arb_trees, street_trees, campu
 Now we reload the file (to avoid having to repeat previous steps) and generate some graphs and charts of our data:
 ```{r}
 training_trees <- read_sf("C:/Users/User/OneDrive - Umich/School/Capstone Project/Data/training_trees_master.shp")
+#training_trees <- read_sf("C:/Users/Thomas/OneDrive - Umich/School/Capstone Project/Data/training_trees_master.shp")
 ```
 
 Here we get counts for the top 20 trees in our full dataset:
@@ -258,21 +266,43 @@ ggplot(training_trees[training_trees$Genus == 'ACER',], aes(x=DBH)) + geom_histo
 ggplot(training_trees[training_trees$Genus == 'CARYA',], aes(x=DBH)) + geom_histogram(fill="forestgreen", colour = 'black', binwidth = 5) + labs(title = "Hickory DBH distribution")
 ```
 
+```{r}
+ggplot(training_trees[(training_trees$Genus == 'QUERC') & (training_trees$Source == 'Survey'),], aes(x=DBH)) + geom_histogram(fill="goldenrod", colour = 'black', binwidth = 5) + labs(title = "Oak DBH distribution (Survey)")
+```
 
 
+```{r}
+ggplot(training_trees[(training_trees$Genus == 'QUERC') & (training_trees$Source == 'Street Trees'),], aes(x=DBH)) + geom_histogram(fill="goldenrod", colour = 'black', binwidth = 5) + labs(title = "Oak DBH distribution (Street Trees)")
+```
 
+```{r}
+ggplot(training_trees[(training_trees$Genus == 'QUERC'),], aes(x=DBH, color=Source, fill = Source)) + geom_histogram(binwidth = 5, position = "identity", alpha = 0.25) + labs(title = "Oak DBH distribution")
+```
 
+```{r}
+ggplot(drop_na(training_trees[(training_trees$Genus == 'QUERC'),], Source), aes(x=DBH, fill = Source)) + geom_histogram(binwidth = 5, position = "identity", alpha = 0.5, color="black") + facet_wrap(Source ~ ., ncol = 2, scales='free_y') + labs(title = "Oak DBH distribution") + scale_fill_brewer(palette = "Set1")
+```
 
+```{r}
+ggplot(drop_na(training_trees[(training_trees$Genus == 'CARYA'),], Source), aes(x=DBH, fill = Source)) + geom_histogram(binwidth = 5, position = "identity", alpha = 0.5, color="black") + facet_wrap(Source ~ ., ncol = 2, scales='free_y') + labs(title = "Hickory DBH distribution") + scale_fill_brewer(palette = "Set2")
+```
 
+```{r}
+ggplot(drop_na(training_trees[(training_trees$Genus == 'ACER'),], Source), aes(x=DBH, fill = Source)) + geom_histogram(binwidth = 5, position = "identity", alpha = 0.5, color="black") + facet_wrap(Source ~ ., ncol = 2, scales='free_y') + labs(title = "Maple DBH distribution") + scale_fill_brewer(palette = "Set3")
+```
 
+```{r}
+ggplot(drop_na(training_trees[(training_trees$Genus %in% c('ACER', 'QUERC', 'CARYA')),], Source), aes(x=DBH, fill = Source)) + geom_histogram(binwidth = 5, position = "identity", alpha = 0.4, color="black") + facet_grid(Source ~ Genus, scales='free_y') + labs(title = "DBH Distribution by Data Source", y = "Count") + scale_fill_brewer(palette = "Set1") + theme(legend.position = 'none')
 
+ggsave(filename = "C:/Users/User/OneDrive - Umich/School/Capstone Project/grid_plot.png", width = 2400, height = 1600, units = 'px', dpi = 300, bg = "#384f37")
+```
 
-
-
-
-
-
-
+```{r}
+ggplot(drop_na(training_trees[(training_trees$Genus %in% c('QUERC')) & (training_trees$Source %in% "Survey"),], Source), aes(x=DBH, fill = Plnt_Cd)) + geom_histogram(binwidth = 5, position = "identity", alpha = 0.4, color="black") + facet_grid(Plnt_Cd ~ .) + labs(title = "DBH Distribution by Data Source", y = "Count") + scale_fill_brewer(palette = "Set1") + theme(legend.position = 'none')
+```
+```{r}
+boxplot(DBH ~ Plnt_Cd, data = drop_na(training_trees[(training_trees$Genus %in% c('QUERC')),], Source))
+```
 
 
 
