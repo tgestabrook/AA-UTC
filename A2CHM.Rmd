@@ -1,0 +1,202 @@
+---
+title: "A2 CHM Demo"
+author: "Thomas Estabrook"
+date: "8/31/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(lidR)
+library(raster)
+```
+
+This script creates a CHM for all of Ann Arbor from LiDAR data. 
+
+Notes
+- Might be able to save memory by reading in only first returns (and ground points?)
+- Things to filter out later (thus non-issue if wonky)
+  - Water
+  - Non photosynthesizing (e.g. buildings/roads)
+
+Testing agenda
+- Calibrate pitfree
+- Test on:
+  - Forest (277295)
+  - Dense Urban (290282)
+  - Residential (285287)
+  - Oldfield/shrubs and turf grass (305265 - Lillie Park)
+
+Outline:
+- Filter outliers (95%)
+- Normalize 
+- Create three resolutions of CHM
+- Apply CRS to each
+- Export as TIF
+
+# Demo of `lidR` package for use by AAUTC
+
+## Initial preparation:
+
+First, we load in the lidar data. Selected are four examples of differnt environments found in A2. The forest tile is from somewhere outside city limits near the Huron River. Urban is either downtown or campus. Residential draws from the Old West Side, and field encompasses Lillie Park (and thus also a highway, some forest, and some large industrial-type buildings) 
+
+```{r}
+testlas_forest <- readLAS("277295.las")
+testlas_urban <- readLAS("290282.las")
+testlas_res <- readLAS("285287.las")
+testlas_field <- readLAS("305265.las")
+
+crs(testlas_forest) # Check the coordinate reference system used by the pointclouds. Note that data is in feet due to MI state plane system
+```
+
+This code checks the integrity of the data, though I'm still not 100% sure what to do with the output.
+
+```{r, echo=FALSE}
+las_check(testlas_forest)
+las_check(testlas_urban)
+las_check(testlas_res)
+las_check(testlas_field)
+```
+
+Some of the tiles have weird outliers 1000s of feet in the air. In my tests, these were preventing the CHM algorithms from working properly. This function, taken from one of the `lidR` vignettes, filters out the top and bottom fifth percentile of points. This doesn't seem to have a noticable visual effect aside from removing said outliers, but I worry it's too aggressive. Something we should probably test. 
+
+```{r}
+# Code from: https://cran.r-project.org/web/packages/lidR/vignettes/lidR-catalog-apply-examples.html
+filter_noise = function(las, sensitivity)
+{
+  p95 <- grid_metrics(las, ~quantile(Z, probs = 0.95), 10)
+  las <- merge_spatial(las, p95, "p95")
+  las <- filter_poi(las, Z < p95*sensitivity)
+  las$p95 <- NULL
+  return(las)
+}
+```
+
+```{r}
+testlas_forest <- filter_noise(testlas_forest, sensitivity = 1.2)
+testlas_urban <- filter_noise(testlas_urban, sensitivity = 1.2)
+testlas_res <- filter_noise(testlas_res, sensitivity = 1.2)
+testlas_field <- filter_noise(testlas_field, sensitivity = 1.2)
+```
+
+Next, to make the CHM we can run the `normalize_height` function which aligns all points classified as "ground" to z=0.
+
+```{r}
+testlas_forest <- normalize_height(testlas_forest, tin(), na.rm = TRUE)
+testlas_urban <- normalize_height(testlas_urban, tin(), na.rm = TRUE)
+testlas_res <- normalize_height(testlas_res, tin(), na.rm = TRUE)
+testlas_field <- normalize_height(testlas_field, tin(), na.rm = TRUE)
+```
+
+## Creating a Canopy Height Model
+
+### 'Perfect' CHMs
+
+This code chunk uses the "perfect" canopy hight algorithm. In brief, it:
+- Replaces each point with a circle of points at the same height to eliminate gaps
+- Constructs triangulated irregular networks at multiple height cutoffs to interpolate missing values
+- Removes weird stretched-out triangles with edges longer than 6 feet (these cause issues along things like lakes, forest edges, etc.)
+
+```{r}
+testCHM_forest <- grid_canopy(testlas_forest, 1, pitfree(c(0,10,20), c(0,6), subcircle = 1))
+testCHM_urban <- grid_canopy(testlas_urban, 1, pitfree(thresholds = c(0,10,20), c(0,6), subcircle = 1))
+testCHM_res <- grid_canopy(testlas_res, 1, pitfree(thresholds = c(0,10,20), c(0,6), subcircle = 1))
+testCHM_field <- grid_canopy(testlas_field, 1, pitfree(thresholds = c(0,10,20), c(0,6), subcircle = 1))
+```
+
+Here the results are visualized:
+
+```{r, fig.height=10, fig.width=10, warning=FALSE}
+par(mfrow = c(2,2))
+plot(testCHM_forest, col=height.colors(50), main="Forest")
+plot(testCHM_urban, col=height.colors(50), main="Urban")
+plot(testCHM_res, col=height.colors(50), main="Residential")
+plot(testCHM_field, col=height.colors(50), main="Field/Shrubs")
+```
+
+### Other methods:
+
+By comparison, here's the forest tile in some other algorithms. The first, point-to-raster, is the crudest, where raster cells are allocated to the highest return. The second does the same, but with the subcircling tweak from above to eliminate gaps. The third uses a single TIN with no other tweaks.
+
+```{r fig.height=10, fig.width=10}
+testCHM_forest_p2r <- grid_canopy(testlas_forest, 1, p2r())
+testCHM_forest_sub <- grid_canopy(testlas_forest, 1, p2r(subcircle = 1))
+testCHM_forest_tin <- grid_canopy(testlas_forest, 1, dsmtin())
+
+par(mfrow=c(2,2))
+plot(testCHM_forest, col=height.colors(50), main="'Perfect'")
+plot(testCHM_forest_p2r, col=height.colors(50), main="Point to Raster")
+plot(testCHM_forest_sub, col=height.colors(50), main="Subcircle")
+plot(testCHM_forest_tin, col=height.colors(50), main="TIN only")
+```
+
+The p2r is many times faster, but leaves way more gaps than the TIN methods.
+
+Note that there is some weirdness around the edges of some of the CHMs (especially urban). This can be eliminated (along with several other problems) by reading in all our data as a `LAScatalog`, a built-in functionality in `lidR`. This will work as input to all previous steps, but will tell R to process each tile with a "buffer" of surrounding points to prevent edge weirdness. It will also make it possible to generate a single large CHM rather than individual tiles, though those are also possible.
+
+## Other cool stuff
+
+The main reason I want to push for `lidR` is that it has lots of other cool features that could be really useful to us. 
+
+### Treetop identification:
+
+This uses a local maximum moving window over the original LiDAR data to locate likely treetops. The size of the moving window is something that we would need to calibrate carefully It is also possible to do a more sophisitcated pass where the size of the window is a user-defined function, so tall trees cast a bigger window, small trees cause a smaller, etc. 
+
+```{r, fig.height=10, fig.width=10}
+ttops <- find_trees(testlas_forest, lmf(ws = 30)) #find local maxima in a 30 foot moving window
+
+plot(testCHM_forest, col = height.colors(50))
+plot(ttops, add = TRUE)
+```
+
+
+Tree segmentation:
+
+```{r}
+algo <- dalponte2016(testCHM_forest, ttops)
+
+algo2 <- li2012()
+
+
+
+testlas_forest2 <- segment_trees(testlas_forest, algo2) # segment point cloud
+
+plot(testlas_forest2, bg = "white", size = 4, color = "treeID") # visualize trees
+```
+
+```{r}
+crowns <- delineate_crowns(testlas_forest2)
+par(mar=rep(0,4))
+plot(crowns)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
