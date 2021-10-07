@@ -53,17 +53,20 @@ First we load in the necessary training data layers and ensure they are all in t
 ```{r}
 # set up tree codes table
 tree_codes <- read.csv("C:/Users/User/OneDrive - Umich/School/Capstone Project/Data//CodedTrainingData/Tree_codes_master_09-06.csv")
-colnames(tree_codes)[1] <- "Common_Name"
-tree_codes$Project_Code[tree_codes$Project_Code == ""] <- NA
-tree_codes$Plant_Code[tree_codes$Plant_Code == ""] <- NA
-tree_codes <- tree_codes %>%
-  mutate(Project_Code = coalesce(Project_Code, Plant_Code)) %>%
-  mutate(Common_Name = str_to_title(Common_Name))
+# colnames(tree_codes)[1] <- "Common_Name"
+# tree_codes$Project_Code[tree_codes$Project_Code == ""] <- NA
+# tree_codes$Plant_Code[tree_codes$Plant_Code == ""] <- NA
+# tree_codes <- tree_codes %>%
+#   mutate(Project_Code = coalesce(Project_Code, Plant_Code)) %>%
+#   mutate(Common_Name = str_to_title(Common_Name))
 
 # For the joins to work, we need to check for duplicates in the project codes. If any of these tables have an entry higher than one, you will need to adjust the plant code document accordingly. 
 n_occur_code <- data.frame(table(tree_codes$Project_Code))
-n_occur_common <- data.frame(table(tree_codes$Project_Code))
-n_occur_botanical <- data.frame(table(tree_codes$Project_Code))
+n_occur_common <- data.frame(table(tree_codes$Common_Name))
+n_occur_botanical <- data.frame(table(tree_codes$Botanical))
+max(n_occur_code$Freq)
+max(n_occur_common$Freq)
+max(n_occur_botanical$Freq)  # If all are one, we're good
 
 # load data layers
 survey_trees_plot <- read_sf("C:/Users/User/OneDrive - Umich/School/Capstone Project/Data/tree_points_Aug_18.shp")
@@ -73,12 +76,14 @@ survey_trees_single <- read_sf("C:/Users/User/OneDrive - Umich/School/Capstone P
 street_trees <- read_sf("C:/Users/User/OneDrive - Umich/School/Capstone Project/Data/Street_trees/Street_trees.shp")
 arb_trees <- read_sf("C:/Users/User/OneDrive - Umich/School/Capstone Project/Data/Arb_trees/Arb_trees.shp")
 campus_trees <- read_sf("C:/Users/User/OneDrive - Umich/School/Capstone Project/Data/Campus_trees/Campus_trees.shp")
+radrick_trees <- read_sf("C:/Users/User/OneDrive - Umich/School/Capstone Project/Data/Radrick_stemmap_Project.geojson")
 
 # reproject layers
 survey_trees_single <- st_transform(survey_trees_single, st_crs(survey_trees_plot))
 street_trees <- st_transform(street_trees, st_crs(survey_trees_plot))
 arb_trees <- st_transform(arb_trees, st_crs(survey_trees_plot))
 campus_trees <- st_transform(campus_trees, st_crs(survey_trees_plot))
+radrick_trees <- st_transform(radrick_trees, st_crs(survey_trees_plot))
 
 # check for projection consistency
 print(st_crs(survey_trees_plot) == st_crs(survey_trees_single))
@@ -157,62 +162,42 @@ arb_trees['Source'] <- "Arboretum"
 Code and clean the campus trees:
 ```{r}
 # remove NA and unknown and removed trees
+campus_trees <- read_sf("C:/Users/User/OneDrive - Umich/School/Capstone Project/Data/Campus_trees/Campus_trees.shp")
+
+campus_key <- read.csv("C:/Users/User/OneDrive - Umich/School/Capstone Project/Data//CodedTrainingData/campus_join_key.csv")
+campus_key$Campus_Name <- trimws(campus_key$Campus_Name, which = "both", whitespace = "[ \t\r\n]")
+
 campus_trees <- campus_trees[!is.na(campus_trees$d_SpeciesI), ]
 campus_trees <- campus_trees[campus_trees$d_SpeciesI != 'Unknown', ]
 campus_trees <- campus_trees[campus_trees$d_Removed == "No or False", ]
 
 # make data easier to work with
 campus_trees <- campus_trees %>% select('d_SpeciesI', 'Diameter', 'geometry')
-colnames(campus_trees) <- c('Common_Name', 'DBH', 'geometry')
+colnames(campus_trees) <- c('Campus_Name', 'DBH', 'geometry')
+campus_trees$Campus_Name <- str_to_title(campus_trees$Campus_Name)
 
-# rename a bunch of trees to make the table join possible
-campus_trees$Common_Name[campus_trees$Common_Name == "Colorado Blue Spruce"] <- "Blue Spruce"
-campus_trees$Common_Name[campus_trees$Common_Name == "Honeylocust (Thornless)"] <- "Honeylocust, Thornless"
-campus_trees$Common_Name[campus_trees$Common_Name == "Honey Locust"] <- "Honeylocust, Thornless"
-campus_trees$Common_Name[campus_trees$Common_Name == "Crabapple"] <- "Crabapple, Common"
-campus_trees$Common_Name[campus_trees$Common_Name == "Mary Potter Crabapple"] <- "Crabapple, Common"
-campus_trees$Common_Name[campus_trees$Common_Name == "Northern red oak"] <- "Northern Red Oak"
-campus_trees$Common_Name[campus_trees$Common_Name == "White Pine"] <- "Eastern White Pine"
-campus_trees$Common_Name[campus_trees$Common_Name == "Littleleaf Linden"] <- "Linden, Littleleaf"
-campus_trees$Common_Name[campus_trees$Common_Name == "Japanese Cherry"] <- "Plum" #to classify to prunus sp.
-campus_trees$Common_Name[campus_trees$Common_Name == "Cherry Hybrid"] <- "Plum" #ditto
-campus_trees$Common_Name[campus_trees$Common_Name == "American Arborvitae"] <- "Northern White-Cedar"
-campus_trees$Common_Name[campus_trees$Common_Name == "London Planetree"] <- "Planetree, London"
-campus_trees$Common_Name[campus_trees$Common_Name == "Heritage River Birch"] <- "River Birch"
-campus_trees$Common_Name[campus_trees$Common_Name == "Black Gum"] <- "Blackgum"
-campus_trees$Common_Name[campus_trees$Common_Name == "Serbian Spruce"] <- "Spruce, Serbian"
-campus_trees$Common_Name[campus_trees$Common_Name == "Shadblow Serviceberry"] <- "Serviceberry"
-campus_trees$Common_Name[campus_trees$Common_Name == "Saucer Magnolia"] <- "Magnolia, Chinese; Saucer"
-campus_trees$Common_Name[campus_trees$Common_Name == "Ginkgo"] <- "Ginkgo, Maidenhair Tree"
-campus_trees$Common_Name[campus_trees$Common_Name == "Tuliptree"] <- "Yellow-Poplar"
-campus_trees$Common_Name[campus_trees$Common_Name == "Bradford Pear"] <- "Pear, Callery"
-campus_trees$Common_Name[campus_trees$Common_Name == "American Arborvitae \"Nigra\""] <- "northern white-cedar"
-campus_trees$Common_Name[campus_trees$Common_Name == "Red Sunset Maple"] <- "Maple"
-campus_trees$Common_Name[campus_trees$Common_Name == "Whitespire Birch"] <- "birch sp."
-campus_trees$Common_Name[campus_trees$Common_Name == "Callery Pear"] <- "Pear, Callery"
-campus_trees$Common_Name[campus_trees$Common_Name == "Common Hackberry"] <- "hackberry"
-campus_trees$Common_Name[campus_trees$Common_Name == "Japanese Zelkova
-"] <- "zelkova, Japanese"
-campus_trees$Common_Name[campus_trees$Common_Name == "Cleveland Select Pear"] <- "Pear"
-campus_trees$Common_Name[campus_trees$Common_Name == "Crusader Hawthorn"] <- "Hawthorn"
-campus_trees$Common_Name[campus_trees$Common_Name == "Japanese Tree Lilac"] <- "lilac, Japanese tree"
-campus_trees$Common_Name[campus_trees$Common_Name == "American Liberty Elm"] <- "American elm"
-campus_trees$Common_Name[campus_trees$Common_Name == "Amur Maple"] <- "Maple, Amur"
+campus_trees <- campus_trees %>%
+  left_join(campus_key) %>%
+  select("Common_Name", 'DBH', 'geometry')
 
-campus_trees <- campus_trees %>% left_join(tree_codes)
+campus_trees <- campus_trees %>% left_join(tree_codes, by = "Common_Name")
 campus_trees['Source'] <- "Campus"
+
+ctna <- campus_trees[is.na(campus_trees$Genus), ] %>%
+  group_by(Genus) %>%
+  summarise(n = n())
 ```
 
-Here we do a few checks to make sure the data cleaning went well:
+Code and clean Radrick trees:
 ```{r}
-ctna <- campus_trees[is.na(campus_trees$Plant_Code), ] %>%
-  group_by(Common_Name) %>%
-  summarise(n = n())
+radrick_trees <- radrick_trees %>%
+  select('Species', 'Diameter', 'geometry') %>%
+  rename(Project_Code = Species, DBH = Diameter) %>%
+  left_join(tree_codes) %>%
+  mutate(Source = "Radrick")
 
-survey_counts <- survey_trees_full %>%
-  group_by(Plant_Code) %>%
-  summarise(n = n())
 ```
+
 
 Choose final variables to keep and combine into a single master layer:
 ```{r}
@@ -220,10 +205,16 @@ survey_trees_full <- survey_trees_full %>% select(c('Plant_Code', 'Common_Name',
 street_trees <- street_trees %>% select(c('Plant_Code', 'Common_Name', 'DBH', 'Source', 'Genus', 'Project_Code', 'geometry'))
 arb_trees <- arb_trees %>% select(c('Plant_Code', 'Common_Name', 'DBH', 'Source', 'Genus', 'Project_Code', 'geometry'))
 campus_trees <- campus_trees %>% select(c('Plant_Code', 'Common_Name', 'DBH', 'Source', 'Genus', 'Project_Code', 'geometry'))
+radrick_trees <- radrick_trees %>% select(c('Plant_Code', 'Common_Name', 'DBH', 'Source', 'Genus', 'Project_Code', 'geometry'))
 
-training_trees_master <- rbind(survey_trees_full, arb_trees, street_trees, campus_trees)
-# st_write(training_trees_master, "C:/Users/User/OneDrive - Umich/School/Capstone Project/Data/training_trees_master.shp")
+training_trees_master <- rbind(survey_trees_full, arb_trees, street_trees, campus_trees, radrick_trees)
+st_write(training_trees_master, "C:/Users/User/OneDrive - Umich/School/Capstone Project/Data/training_trees_master_10-6v2.shp")
 ```
+
+
+------------------------------------------------------------------------------------------------------------------------
+
+
 Now we reload the file (to avoid having to repeat previous steps) and generate some graphs and charts of our data:
 ```{r}
 training_trees <- read_sf("C:/Users/User/OneDrive - Umich/School/Capstone Project/Data/training_trees_master.shp")
