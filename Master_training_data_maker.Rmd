@@ -52,7 +52,7 @@ Join Keys:
 First we load in the necessary training data layers and ensure they are all in the same projection:
 ```{r}
 # set up tree codes table
-tree_codes <- read.csv("C:/Users/User/OneDrive - Umich/School/Capstone Project/Data//CodedTrainingData/GenusSpecies_PlantCode_TGE_edits.csv")
+tree_codes <- read.csv("C:/Users/User/OneDrive - Umich/School/Capstone Project/Data//CodedTrainingData/Tree_codes_master_09-06.csv")
 colnames(tree_codes)[1] <- "Common_Name"
 tree_codes$Project_Code[tree_codes$Project_Code == ""] <- NA
 tree_codes$Plant_Code[tree_codes$Plant_Code == ""] <- NA
